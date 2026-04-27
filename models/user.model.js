@@ -9,13 +9,20 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true,
+    lowercase: true,
+    trim: true,
   },
   password: {
     type: String,
     required: true,
+    select: false,
   },
   mobile: String,
-  role: String,
+  role: {
+    type: String,
+    enum: ["admin", "faculty", "student"],
+    required: true,
+  },
 
   // 🔹 Profile Fields
   gender: {
