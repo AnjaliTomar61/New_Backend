@@ -1,24 +1,11 @@
 import mongoose from "mongoose";
 import { user } from "../models/user.model.js";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { validationResult } from "express-validator";
-
-function serializeUser(doc) {
-  if (!doc) return null;
-  return {
-    id: doc._id.toString(),
-    name: doc.name,
-    email: doc.email,
-    role: doc.role,
-  };
-}
-
-function jwtForUser(doc) {
-  const secret = process.env.JWT_ACCESS_SECRET || "dev_secret";
-  const expiresIn = process.env.JWT_ACCESS_EXPIRES_IN || "1d";
-  return jwt.sign({ sub: doc._id.toString(), role: doc.role }, secret, { expiresIn });
-}
+import { jwtForUser, serializeUser } from "../utils/authTokens.js";
+import { migrateLegacyFacultyToPortalUser } from "../services/portalFaculty.js";
+import { FacultyProfile } from "../models/facultyProfile.model.js";
+import { StudentProfile } from "../models/studentProfile.model.js";
+import { nextEnrollmentNo } from "../utils/idGenerator.js";
 
 export const signup = async (req, res) => {
   try {
@@ -40,11 +27,15 @@ export const signup = async (req, res) => {
       });
     }
 
-    // Public signup: students & faculty only (admins provisioned separately)
-    if (!["student", "faculty"].includes(role)) {
+    const allowedRoles = ["student", "faculty"];
+    if (process.env.ALLOW_ADMIN_SIGNUP === "true") {
+      allowedRoles.push("admin");
+    }
+    if (!allowedRoles.includes(role)) {
       return res.status(403).json({
         success: false,
-        message: "Admin accounts cannot be created from this form. Contact IT.",
+        message:
+          "Invalid role. Student and faculty may self-register; admin only when ALLOW_ADMIN_SIGNUP=true.",
       });
     }
 
@@ -53,23 +44,40 @@ export const signup = async (req, res) => {
       return res.status(409).json({ success: false, message: "Email already registered" });
     }
 
-    const hashed = await bcrypt.hash(password, 10);
     const newuser = user({
       name,
       email: String(email).toLowerCase(),
       mobile,
-      password: hashed,
+      password: String(password),
       role,
     });
     await newuser.save();
 
+    if (role === "faculty") {
+      await FacultyProfile.findOneAndUpdate(
+        { user: newuser._id },
+        { $setOnInsert: { user: newuser._id, designation: "Lecturer", isActive: true } },
+        { upsert: true }
+      );
+    } else if (role === "student") {
+      const enrollmentNo = await nextEnrollmentNo();
+      await StudentProfile.findOneAndUpdate(
+        { user: newuser._id },
+        { $setOnInsert: { user: newuser._id, admissionStatus: "pending", enrollmentNo } },
+        { upsert: true }
+      );
+    }
+
     const token = jwtForUser(newuser);
+    const userOut = serializeUser(newuser);
 
     return res.status(201).json({
       message: "Account created successfully",
       success: true,
       token,
-      user: serializeUser(newuser),
+      role: userOut.role,
+      user: userOut,
+      data: { token, role: userOut.role, user: userOut },
     });
   } catch (error) {
     if (error?.code === 11000) {
@@ -100,9 +108,13 @@ export const login = async (req, res) => {
       });
     }
 
-    const existingUser = await user
-      .findOne({ email: String(email).toLowerCase() })
-      .select("+password");
+    const emailNorm = String(email).toLowerCase().trim();
+
+    let existingUser = await user.findOne({ email: emailNorm }).select("+password");
+
+    if (!existingUser) {
+      existingUser = await migrateLegacyFacultyToPortalUser(emailNorm, password);
+    }
 
     if (!existingUser) {
       return res.status(401).json({
@@ -111,18 +123,21 @@ export const login = async (req, res) => {
       });
     }
 
-    const ok = await bcrypt.compare(password, existingUser.password);
-    if (!ok) {
+    if (String(password) !== String(existingUser.password)) {
       return res.status(401).json({ success: false, message: "Invalid email or password" });
     }
 
     const token = jwtForUser(existingUser);
+    const userOut = serializeUser(existingUser);
 
     return res.json({
       message: "Login successful",
       success: true,
       token,
-      user: serializeUser(existingUser),
+      role: userOut.role,
+      user: userOut,
+      /** Same auth payload nested for clients that only read `response.data.data` */
+      data: { token, role: userOut.role, user: userOut },
     });
   } catch (error) {
     console.error("login", error);

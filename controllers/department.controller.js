@@ -1,4 +1,6 @@
+import mongoose from "mongoose";
 import { Department } from "../models/department.model.js";
+import { Course } from "../models/course.model.js";
 
 // ➕ Create Department
 export const createDepartment = async (req, res) => {
@@ -136,7 +138,20 @@ export const updateDepartment = async (req, res) => {
 // ❌ Delete Department
 export const deleteDepartment = async (req, res) => {
   try {
-    const department = await Department.findByIdAndDelete(req.params.id);
+    const id = req.params.id;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ success: false, message: "Invalid department id" });
+    }
+
+    const inUse = await Course.countDocuments({ department: id });
+    if (inUse > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `This department has ${inUse} course(s). Reassign or delete those courses first.`,
+      });
+    }
+
+    const department = await Department.findByIdAndDelete(id);
 
     if (!department) {
       return res.status(404).json({

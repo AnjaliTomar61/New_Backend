@@ -1,28 +1,39 @@
 // models/faculty.model.js
+/** Admin-managed employment row. Identity & contact live on `user`; teaching profile on `FacultyProfile`. */
 import mongoose from "mongoose";
 
 const facultySchema = new mongoose.Schema(
   {
-    // 🔐 Admin Controlled Fields
+    /** Portal account this HR row belongs to (set for all new creates). */
+    portalUser: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "user",
+      sparse: true,
+      index: true,
+    },
     employeeId: {
       type: String,
       required: true,
+      trim: true,
       unique: true,
     },
-    name: {
-      type: String,
-      required: true,
-    },
+    /**
+     * Same as portal login email (lowercase). Used for legacy login migration
+     * and admin listings when populated from `user`.
+     */
     officialEmail: {
       type: String,
       required: true,
-      unique: true,
+      trim: true,
+      lowercase: true,
     },
-    department: {
+    /** Free-text department from admin form (not the same as FacultyProfile.department ObjectId). */
+    departmentName: {
       type: String,
       required: true,
+      trim: true,
     },
-    role: {
+    designation: {
       type: String,
       enum: ["Professor", "Assistant Professor", "HOD", "Lecturer"],
       default: "Lecturer",
@@ -31,54 +42,12 @@ const facultySchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
-
-    // 🔑 Authentication
+    /** Legacy / admin default password until user changes portal password. */
     password: {
       type: String,
-      required: true,
+      select: false,
+      default: "",
     },
-
-    // 👤 Faculty Editable Fields
-    phone: {
-      type: String,
-    },
-    profilePhoto: {
-      type: String,
-    },
-    qualification: {
-      type: String,
-    },
-    experience: {
-      type: Number, // in years
-    },
-    address: {
-      type: String,
-    },
-    gender: {
-      type: String,
-      enum: ["Male", "Female", "Other"],
-    },
-    dateOfBirth: {
-      type: Date,
-    },
-
-    // 📚 Extra Academic Info
-    subjects: [
-      {
-        type: String,
-      },
-    ],
-    bio: {
-      type: String,
-    },
-
-    // 🟢 System Fields
-    // isProfileComple
-    
-    // ted: {
-    //   type: Boolean,
-    //   default: false,
-    // },
   },
   { timestamps: true }
 );

@@ -5,14 +5,16 @@
   "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "seed:programs": "node scripts/seedDepartmentsCourses.js",
+    "seed:users": "node scripts/seedUsers.js",
+    "seed:all": "node scripts/seedDepartmentsCourses.js && node scripts/seedUsers.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
