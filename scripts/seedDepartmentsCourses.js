@@ -61,6 +61,17 @@ const SEED_COURSES = [
   },
 ];
 
+/** Create a small set of demo subjects per semester */
+function seedSubjectsFor(courseCode, semesterNumber) {
+  const prefix = `${courseCode.replace(/^SEED_/, "")}${semesterNumber}`;
+  return [
+    { code: `${prefix}01`, name: "Foundations", credits: 4 },
+    { code: `${prefix}02`, name: "Core Concepts", credits: 4 },
+    { code: `${prefix}03`, name: "Lab / Practicals", credits: 2 },
+    { code: `${prefix}04`, name: "Communication Skills", credits: 2 },
+  ];
+}
+
 async function removePreviousSeedCatalog() {
   const deptCodes = SEED_DEPARTMENTS.map((d) => d.code);
   const courseCodes = SEED_COURSES.map((c) => c.courseCode);
@@ -115,14 +126,26 @@ async function main() {
 
     const count = Math.min(Math.max(1, Number(doc.totalSemesters) || 6), 12);
     for (let num = 1; num <= count; num += 1) {
-      await Semester.create({
+      const semDoc = await Semester.create({
         course: doc._id,
         number: num,
         title: `Semester ${num}`,
         isActive: true,
       });
+      const subs = seedSubjectsFor(doc.courseCode, num);
+      for (const s of subs) {
+        await Subject.create({
+          course: doc._id,
+          semester: semDoc._id,
+          code: s.code,
+          name: s.name,
+          credits: s.credits,
+          isActive: true,
+          faculty: null,
+        });
+      }
     }
-    console.log("[seed:programs]   semesters 1–" + count + " for", doc.courseCode);
+    console.log("[seed:programs]   semesters 1–" + count + " + subjects for", doc.courseCode);
   }
 
   console.log("\n[seed:programs] done. Run: npm run seed:users");
