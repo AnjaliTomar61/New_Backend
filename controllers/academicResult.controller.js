@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { AcademicResult } from "../models/academicResult.model.js";
 import { StudentProfile } from "../models/studentProfile.model.js";
 import { user } from "../models/user.model.js";
+import { Subject } from "../models/subject.model.js";
 
 function normalizeLines(raw) {
   if (!Array.isArray(raw)) return [];
@@ -67,6 +68,77 @@ export const listFacultyMenteeResults = async (req, res) => {
     return res.json({ success: true, results: items });
   } catch (e) {
     console.error("listFacultyMenteeResults", e);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/**
+ * Faculty: create OR update marks for an assigned student only.
+ * Upserts by (student, semester, examTitle). Can publish immediately.
+ */
+export const upsertFacultyMenteeResult = async (req, res) => {
+  try {
+    if (req.user.role !== "faculty") {
+      return res.status(403).json({ success: false, message: "Faculty only" });
+    }
+
+    const { studentUserId } = req.params;
+    if (!mongoose.isValidObjectId(studentUserId)) {
+      return res.status(400).json({ success: false, message: "Invalid student id" });
+    }
+
+    const prof = await StudentProfile.findOne({ user: studentUserId })
+      .select("assignedFaculty currentSemester course")
+      .lean();
+    if (!prof) return res.status(404).json({ success: false, message: "Student profile not found" });
+    if (!prof.assignedFaculty || String(prof.assignedFaculty) !== String(req.user.id)) {
+      return res.status(403).json({ success: false, message: "You are not assigned to this student." });
+    }
+
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const semesterId =
+      body.semester && mongoose.isValidObjectId(body.semester)
+        ? body.semester
+        : prof.currentSemester && mongoose.isValidObjectId(prof.currentSemester)
+          ? prof.currentSemester
+          : null;
+
+    if (!semesterId) {
+      return res.status(400).json({
+        success: false,
+        message: "Student does not have a currentSemester. Ask admin to set it before uploading marks.",
+      });
+    }
+
+    const title = String(body.examTitle || "").trim();
+    if (!title) return res.status(400).json({ success: false, message: "examTitle is required" });
+
+    const lines = normalizeLines(body.lines);
+    // Ensure provided subjects (if any) belong to the same semester
+    const subjectIds = lines.map((l) => l.subject).filter(Boolean);
+    if (subjectIds.length) {
+      const count = await Subject.countDocuments({ _id: { $in: subjectIds }, semester: semesterId });
+      if (count !== subjectIds.length) {
+        return res.status(400).json({ success: false, message: "One or more subjects do not belong to this semester." });
+      }
+    }
+
+    const set = {
+      published: body.published !== undefined ? Boolean(body.published) : true,
+      remarks: String(body.remarks ?? "").trim(),
+      lines,
+    };
+
+    const doc = await AcademicResult.findOneAndUpdate(
+      { student: studentUserId, semester: semesterId, examTitle: title },
+      { $set: set, $setOnInsert: { student: studentUserId, semester: semesterId, examTitle: title } },
+      { upsert: true, new: true, runValidators: true }
+    );
+
+    const out = await populateResult(doc);
+    return res.status(200).json({ success: true, message: "Marks saved", result: out });
+  } catch (e) {
+    console.error("upsertFacultyMenteeResult", e);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
